@@ -6,6 +6,7 @@ import VisualizationSection from '@/components/VisualizationSection';
 import WorkflowSection from '@/components/WorkflowSection';
 import DashboardPreview from '@/components/DashboardPreview';
 import Footer from '@/components/Footer';
+import ThemeToggle from '@/components/ThemeToggle';
 
 const Index = () => {
   const [parsedData, setParsedData] = useState<ParsedData | null>(null);
@@ -16,6 +17,11 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background noise">
+      {/* Theme Toggle - Fixed Position */}
+      <div className="fixed top-6 right-6 z-50">
+        <ThemeToggle />
+      </div>
+      
       <HeroSection />
       <FeaturesSection />
       <FileUploadSection onDataParsed={handleDataParsed} />
