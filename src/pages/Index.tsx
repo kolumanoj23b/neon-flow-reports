@@ -1,5 +1,6 @@
 import HeroSection from '@/components/HeroSection';
 import FeaturesSection from '@/components/FeaturesSection';
+import FileUploadSection from '@/components/FileUploadSection';
 import VisualizationSection from '@/components/VisualizationSection';
 import WorkflowSection from '@/components/WorkflowSection';
 import DashboardPreview from '@/components/DashboardPreview';
@@ -10,6 +11,7 @@ const Index = () => {
     <div className="min-h-screen bg-background noise">
       <HeroSection />
       <FeaturesSection />
+      <FileUploadSection />
       <VisualizationSection />
       <WorkflowSection />
       <DashboardPreview />
