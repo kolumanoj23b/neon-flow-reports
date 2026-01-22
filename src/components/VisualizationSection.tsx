@@ -1,10 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import GlassCard from './GlassCard';
 import useScrollReveal from '@/hooks/useScrollReveal';
 import { cn } from '@/lib/utils';
+import { FileUp } from 'lucide-react';
 import {
-  LineChart,
-  Line,
   BarChart,
   Bar,
   PieChart,
@@ -18,8 +17,10 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
+import type { ParsedData } from './FileUploadSection';
 
-const lineData = [
+// Default mock data
+const defaultLineData = [
   { name: 'Jan', value: 400, value2: 240 },
   { name: 'Feb', value: 300, value2: 456 },
   { name: 'Mar', value: 600, value2: 321 },
@@ -29,7 +30,7 @@ const lineData = [
   { name: 'Jul', value: 750, value2: 543 },
 ];
 
-const barData = [
+const defaultBarData = [
   { name: 'Mon', desktop: 186, mobile: 80 },
   { name: 'Tue', desktop: 305, mobile: 200 },
   { name: 'Wed', desktop: 237, mobile: 120 },
@@ -39,18 +40,24 @@ const barData = [
   { name: 'Sun', desktop: 187, mobile: 100 },
 ];
 
-const pieData = [
+const defaultPieData = [
   { name: 'Marketing', value: 400 },
   { name: 'Sales', value: 300 },
   { name: 'Development', value: 300 },
   { name: 'Support', value: 200 },
 ];
 
-const COLORS = ['hsl(168, 80%, 40%)', 'hsl(292, 84%, 72%)', 'hsl(200, 80%, 50%)', 'hsl(340, 80%, 60%)'];
+const COLORS = ['hsl(168, 80%, 40%)', 'hsl(292, 84%, 72%)', 'hsl(200, 80%, 50%)', 'hsl(340, 80%, 60%)', 'hsl(45, 80%, 50%)', 'hsl(120, 60%, 45%)'];
 
-const VisualizationSection = () => {
+interface VisualizationSectionProps {
+  parsedData?: ParsedData | null;
+}
+
+const VisualizationSection = ({ parsedData }: VisualizationSectionProps) => {
   const { ref, isVisible } = useScrollReveal<HTMLDivElement>({ threshold: 0.1 });
   const [animationActive, setAnimationActive] = useState(false);
+
+  const hasData = parsedData && parsedData.rows.length > 0;
 
   useEffect(() => {
     if (isVisible) {
@@ -58,6 +65,83 @@ const VisualizationSection = () => {
       return () => clearTimeout(timer);
     }
   }, [isVisible]);
+
+  // Transform parsed data for charts
+  const { areaData, barData, pieData, metrics } = useMemo(() => {
+    if (!hasData) {
+      return {
+        areaData: defaultLineData,
+        barData: defaultBarData,
+        pieData: defaultPieData,
+        metrics: null
+      };
+    }
+
+    const { headers, rows, numericColumns, columnStats } = parsedData;
+    const numericKeys = Object.keys(numericColumns);
+    
+    // Find a label column (first non-numeric column)
+    const labelColIndex = headers.findIndex((h, i) => {
+      const values = rows.map(row => parseFloat(row[i]));
+      return values.some(v => isNaN(v));
+    });
+    const labelKey = labelColIndex >= 0 ? headers[labelColIndex] : 'Row';
+
+    // Area/Line chart data - use first 2 numeric columns
+    const areaChartData = rows.slice(0, 12).map((row, i) => {
+      const item: Record<string, string | number> = {
+        name: labelColIndex >= 0 ? row[labelColIndex] : `Row ${i + 1}`
+      };
+      numericKeys.slice(0, 2).forEach((key, idx) => {
+        const colIndex = headers.indexOf(key);
+        const val = parseFloat(row[colIndex]);
+        item[idx === 0 ? 'value' : 'value2'] = isNaN(val) ? 0 : val;
+      });
+      return item;
+    });
+
+    // Bar chart data - use first 2 numeric columns
+    const barChartData = rows.slice(0, 7).map((row, i) => {
+      const item: Record<string, string | number> = {
+        name: labelColIndex >= 0 ? (row[labelColIndex]?.slice(0, 10) || `R${i + 1}`) : `R${i + 1}`
+      };
+      numericKeys.slice(0, 2).forEach((key, idx) => {
+        const colIndex = headers.indexOf(key);
+        const val = parseFloat(row[colIndex]);
+        item[idx === 0 ? 'desktop' : 'mobile'] = isNaN(val) ? 0 : val;
+      });
+      return item;
+    });
+
+    // Pie chart data - aggregate first numeric column by category, or use column sums
+    let pieChartData: { name: string; value: number }[];
+    if (numericKeys.length > 0) {
+      // Use column sums for pie chart
+      pieChartData = numericKeys.slice(0, 6).map(key => ({
+        name: key.length > 15 ? key.slice(0, 12) + '...' : key,
+        value: Math.round(columnStats[key]?.sum || 0)
+      }));
+    } else {
+      pieChartData = defaultPieData;
+    }
+
+    // Calculate metrics from first numeric column
+    const firstNumericKey = numericKeys[0];
+    const stats = firstNumericKey ? columnStats[firstNumericKey] : null;
+    const calculatedMetrics = stats ? {
+      total: { label: 'Total Sum', value: stats.sum.toLocaleString(), change: `${rows.length} rows` },
+      average: { label: 'Average', value: stats.avg.toFixed(2), change: `${firstNumericKey}` },
+      min: { label: 'Minimum', value: stats.min.toLocaleString(), change: 'lowest value' },
+      max: { label: 'Maximum', value: stats.max.toLocaleString(), change: 'highest value' }
+    } : null;
+
+    return {
+      areaData: areaChartData.length > 0 ? areaChartData : defaultLineData,
+      barData: barChartData.length > 0 ? barChartData : defaultBarData,
+      pieData: pieChartData.length > 0 ? pieChartData : defaultPieData,
+      metrics: calculatedMetrics
+    };
+  }, [parsedData, hasData]);
 
   return (
     <section className="relative py-32 overflow-hidden" id="visualizations">
@@ -84,20 +168,29 @@ const VisualizationSection = () => {
             <span className="gradient-text block mt-2">tell your story</span>
           </h2>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            Beautiful, interactive visualizations that make complex data easy to understand. Every chart responds to your touch.
+            {hasData 
+              ? `Visualizing data from your uploaded file with ${parsedData.rows.length} rows and ${parsedData.headers.length} columns`
+              : 'Upload a CSV file above to see your data visualized here. Beautiful, interactive charts that make complex data easy to understand.'
+            }
           </p>
+          {hasData && (
+            <div className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/20 border border-primary/30">
+              <FileUp className="w-4 h-4 text-primary" />
+              <span className="text-sm text-primary">Showing your uploaded data</span>
+            </div>
+          )}
         </div>
 
         {/* Charts grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Line Chart */}
+          {/* Area Chart */}
           <ChartCard 
-            title="Revenue Trends" 
-            subtitle="Monthly performance comparison"
+            title={hasData ? "Data Trends" : "Revenue Trends"}
+            subtitle={hasData ? "Values from your CSV" : "Monthly performance comparison"}
             delay={0}
           >
             <ResponsiveContainer width="100%" height={250}>
-              <AreaChart data={lineData}>
+              <AreaChart data={areaData}>
                 <defs>
                   <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="hsl(168, 80%, 40%)" stopOpacity={0.4}/>
@@ -145,8 +238,8 @@ const VisualizationSection = () => {
 
           {/* Bar Chart */}
           <ChartCard 
-            title="Weekly Traffic" 
-            subtitle="Desktop vs Mobile visits"
+            title={hasData ? "Value Comparison" : "Weekly Traffic"}
+            subtitle={hasData ? "Side-by-side column values" : "Desktop vs Mobile visits"}
             delay={100}
           >
             <ResponsiveContainer width="100%" height={250}>
@@ -182,8 +275,8 @@ const VisualizationSection = () => {
 
           {/* Pie Chart */}
           <ChartCard 
-            title="Budget Allocation" 
-            subtitle="Department spending breakdown"
+            title={hasData ? "Column Distribution" : "Budget Allocation"}
+            subtitle={hasData ? "Sum by column" : "Department spending breakdown"}
             delay={200}
           >
             <ResponsiveContainer width="100%" height={250}>
@@ -217,7 +310,7 @@ const VisualizationSection = () => {
                 <div key={entry.name} className="flex items-center gap-2">
                   <div 
                     className="w-3 h-3 rounded-full" 
-                    style={{ backgroundColor: COLORS[index] }}
+                    style={{ backgroundColor: COLORS[index % COLORS.length] }}
                   />
                   <span className="text-sm text-muted-foreground">{entry.name}</span>
                 </div>
@@ -225,17 +318,28 @@ const VisualizationSection = () => {
             </div>
           </ChartCard>
 
-          {/* Live Metrics Card */}
+          {/* Metrics Card */}
           <ChartCard 
-            title="Live Metrics" 
-            subtitle="Real-time data updates"
+            title={hasData ? "Data Statistics" : "Live Metrics"}
+            subtitle={hasData ? "Calculated from your data" : "Real-time data updates"}
             delay={300}
           >
             <div className="grid grid-cols-2 gap-4">
-              <MetricCard label="Active Users" value="2,847" change="+12.5%" positive />
-              <MetricCard label="Conversion Rate" value="3.24%" change="+0.8%" positive />
-              <MetricCard label="Avg. Session" value="4m 32s" change="-0.3%" positive={false} />
-              <MetricCard label="Bounce Rate" value="42.1%" change="-2.1%" positive />
+              {metrics ? (
+                <>
+                  <MetricCard label={metrics.total.label} value={metrics.total.value} change={metrics.total.change} positive />
+                  <MetricCard label={metrics.average.label} value={metrics.average.value} change={metrics.average.change} positive />
+                  <MetricCard label={metrics.min.label} value={metrics.min.value} change={metrics.min.change} positive />
+                  <MetricCard label={metrics.max.label} value={metrics.max.value} change={metrics.max.change} positive />
+                </>
+              ) : (
+                <>
+                  <MetricCard label="Active Users" value="2,847" change="+12.5%" positive />
+                  <MetricCard label="Conversion Rate" value="3.24%" change="+0.8%" positive />
+                  <MetricCard label="Avg. Session" value="4m 32s" change="-0.3%" positive={false} />
+                  <MetricCard label="Bounce Rate" value="42.1%" change="-2.1%" positive />
+                </>
+              )}
             </div>
           </ChartCard>
         </div>

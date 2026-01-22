@@ -1,17 +1,28 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Upload, FileText, X, Download, Sparkles, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import GlassCard from './GlassCard';
 import useScrollReveal from '@/hooks/useScrollReveal';
 
-interface UploadedFile {
+export interface UploadedFile {
   name: string;
   content: string;
   type: string;
 }
 
-const FileUploadSection = () => {
+export interface ParsedData {
+  headers: string[];
+  rows: string[][];
+  numericColumns: { [key: string]: number[] };
+  columnStats: { [key: string]: { min: number; max: number; avg: number; sum: number } };
+}
+
+interface FileUploadSectionProps {
+  onDataParsed?: (data: ParsedData | null) => void;
+}
+
+const FileUploadSection = ({ onDataParsed }: FileUploadSectionProps) => {
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [report, setReport] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -19,6 +30,68 @@ const FileUploadSection = () => {
   const { toast } = useToast();
   
   const { ref: sectionRef } = useScrollReveal();
+
+  const parseCSV = useCallback((content: string): string[][] => {
+    const lines = content.trim().split('\n');
+    return lines.map(line => {
+      const result: string[] = [];
+      let current = '';
+      let inQuotes = false;
+      
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        if (char === '"') {
+          inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+          result.push(current.trim());
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      result.push(current.trim());
+      return result;
+    });
+  }, []);
+
+  // Parse and emit data whenever files change
+  useEffect(() => {
+    if (files.length === 0) {
+      onDataParsed?.(null);
+      return;
+    }
+
+    // Find the first CSV file for chart data
+    const csvFile = files.find(f => f.name.endsWith('.csv') || f.type === 'text/csv');
+    if (!csvFile) {
+      onDataParsed?.(null);
+      return;
+    }
+
+    const data = parseCSV(csvFile.content);
+    const headers = data[0] || [];
+    const rows = data.slice(1);
+
+    // Extract numeric columns
+    const numericColumns: { [key: string]: number[] } = {};
+    const columnStats: { [key: string]: { min: number; max: number; avg: number; sum: number } } = {};
+
+    headers.forEach((header, colIndex) => {
+      const values = rows.map(row => parseFloat(row[colIndex])).filter(n => !isNaN(n));
+      if (values.length > 0) {
+        numericColumns[header] = values;
+        const sum = values.reduce((a, b) => a + b, 0);
+        columnStats[header] = {
+          min: Math.min(...values),
+          max: Math.max(...values),
+          avg: sum / values.length,
+          sum
+        };
+      }
+    });
+
+    onDataParsed?.({ headers, rows, numericColumns, columnStats });
+  }, [files, parseCSV, onDataParsed]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -96,29 +169,6 @@ const FileUploadSection = () => {
   const removeFile = (index: number) => {
     setFiles(prev => prev.filter((_, i) => i !== index));
     setReport('');
-  };
-
-  const parseCSV = (content: string): string[][] => {
-    const lines = content.trim().split('\n');
-    return lines.map(line => {
-      const result: string[] = [];
-      let current = '';
-      let inQuotes = false;
-      
-      for (let i = 0; i < line.length; i++) {
-        const char = line[i];
-        if (char === '"') {
-          inQuotes = !inQuotes;
-        } else if (char === ',' && !inQuotes) {
-          result.push(current.trim());
-          current = '';
-        } else {
-          current += char;
-        }
-      }
-      result.push(current.trim());
-      return result;
-    });
   };
 
   const generateReport = async () => {
